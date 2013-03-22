@@ -3,9 +3,12 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Net;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 
 namespace YouTube_Downloadr
 {
@@ -82,16 +85,93 @@ namespace YouTube_Downloadr
 
     }
 
+    // view model for download list
+    public class DownloadListViewModel : INotifyPropertyChanged
+    {
+      // represent the downloading file
+      private string _title;
+      public string Title
+      {
+        get
+        {
+          return _title;
+        }
+        set
+        {
+          if (value != _title)
+          {
+            _title = value;
+            NotifyPropertyChanged("Title");
+          }
+        }
+      }
+
+      // represent the downloading progress
+      private int _progress;
+      public int Progress
+      {
+        get
+        {
+          return _progress;
+        }
+        set
+        {
+          if (value != _progress)
+          {
+            _progress = value;
+            NotifyPropertyChanged("Progress");
+          }
+        }
+      }
+
+      private int _tag;
+      public int Tag
+      {
+        get
+        {
+          return _tag;
+        }
+        set
+        {
+          if (value != _tag)
+          {
+            _tag = value;
+            NotifyPropertyChanged("Tag");
+          }
+        }
+      }
+
+      public event PropertyChangedEventHandler PropertyChanged;
+      private void NotifyPropertyChanged(String propertyName)
+      {
+        PropertyChangedEventHandler handler = PropertyChanged;
+        if (null != handler)
+        {
+          handler(this, new PropertyChangedEventArgs(propertyName));
+        }
+      }
+    }
+
+
     // the collection data used for combo box binding
-    public ObservableCollection<DownloadLinksViewModel> Items { get; private set; }
+    public ObservableCollection<DownloadLinksViewModel> Links { get; private set; }
+    public ObservableCollection<DownloadListViewModel> DownloadItems { get; private set; }
+
+    public List<Task> DownloadTasks { get; set; }
 
     public MainWindow()
     {
       InitializeComponent();
 
       // Initialize the view model and data binding
-      Items = new ObservableCollection<DownloadLinksViewModel>();
-      Files.ItemsSource = Items;
+      Links = new ObservableCollection<DownloadLinksViewModel>();
+      Files.ItemsSource = Links;
+
+      DownloadItems = new ObservableCollection<DownloadListViewModel>();
+      DownloadList.ItemsSource = DownloadItems;
+
+      // initialize the task pool
+      DownloadTasks = new List<Task>();
 
       Url.Focus();
     }
@@ -108,7 +188,7 @@ namespace YouTube_Downloadr
       var content = Url.Text;
 
       // clear the download links
-      Items.Clear();
+      Links.Clear();
 
       ToggleControls(false);
 
@@ -154,7 +234,7 @@ namespace YouTube_Downloadr
               }
 
               // Insert a links into the view model
-              Items.Add(new DownloadLinksViewModel() 
+              Links.Add(new DownloadLinksViewModel() 
               { 
                 Title = paramMap["quality"] + " (" + paramMap["type"] + ")",
                 Type = fileType, 
@@ -164,7 +244,7 @@ namespace YouTube_Downloadr
             }
           }
 
-          if (Items.Count > 0)
+          if (Links.Count > 0)
           {
             Files.SelectedIndex = 0;
           }
@@ -185,7 +265,7 @@ namespace YouTube_Downloadr
     private void Download_Click(object sender, RoutedEventArgs args)
     {
       int index = Files.SelectedIndex;
-      DownloadLinksViewModel item = Items[index];
+      DownloadLinksViewModel item = Links[index];
 
       // open a SaveFileDialog to choose where to save the file
       SaveFileDialog sfd = new SaveFileDialog();
@@ -193,27 +273,40 @@ namespace YouTube_Downloadr
       sfd.Filter = "All Files (*.*) | *.*";
       if ((bool) sfd.ShowDialog())
       {
-        ToggleControls(false);
+        //ToggleControls(false);
 
         // determine the filename set by user.
         string fileName = sfd.FileName;
+        int taskIndex = DownloadTasks.Count;
+        DownloadItems.Add(new DownloadListViewModel() 
+        { 
+          Title = fileName,
+          Progress = 0,
+          Tag = taskIndex
+        });
+
 
         WebClient client = new WebClient();
         client.DownloadProgressChanged += (s, e) =>
         {
           // update the progress bar
-          Progress.Value = e.ProgressPercentage;
+          DownloadItems[taskIndex].Progress = e.ProgressPercentage;
         };
 
         client.DownloadFileCompleted += (s, e) => {
-          ToggleControls(true);
-          MessageBox.Show("Done.");
+
         };
 
         // start to download file.
-        client.DownloadFileAsync(new Uri(Items[index].Link), fileName);
+        Task task = client.DownloadFileTaskAsync(new Uri(Links[index].Link), fileName);
+        DownloadTasks.Add(task);
 
+        // clear the url and combobox
+        Url.Text = "";
+        Url.Focus();
+        Links.Clear();
       }
     }
+
   }
 }
